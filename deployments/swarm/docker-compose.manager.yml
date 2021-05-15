@@ -1,0 +1,88 @@
+version: "3"
+
+services:
+    traefik:
+        image: traefik:v2.1
+        ports:
+            - "443:443"
+            - "80:80"
+            - "1883:1883"
+            - "27017:27017"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /dev/random:/dev/random
+            - /mnt/shared/configuration/traefik.toml:/traefik.toml
+        deploy:
+            placement:
+                constraints: [node.role == manager]
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.http.routers.dashboard.rule=Host(`proxy.chariot.platform.local`)
+                - traefik.http.routers.dashboard.entrypoints=http
+                - traefik.http.routers.dashboard.service=api@internal
+                - traefik.http.routers.dashboard.middlewares=auth
+                - traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$4vrmU0af$$k8qfGglo93O9fjQKMECbH1
+                - traefik.http.services.dashboard.loadbalancer.server.port=9999
+
+    registry:
+        image: registry:latest
+        environment: 
+            REGISTRY_PROXY_REMOTEURL: 'https://registry-1.docker.io'
+        deploy:
+            placement:
+                constraints: [node.role == manager]
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.http.routers.registry.rule=Host(`registry.chariot.platform.local`)
+                - traefik.http.routers.registry.entrypoints=http
+                - traefik.http.routers.registry.service=registry
+                - traefik.http.services.registry.loadbalancer.server.port=5000
+
+    agent:
+        image: portainer/agent:1.5.1
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - "portainer-agent-data:/data"
+        networks:
+            default:
+                aliases:
+                    - tasks.agent 
+        deploy:
+            mode: global
+            placement:
+                constraints: [node.platform.os == linux]
+            labels:
+                - traefik.enable=false
+
+    portainer:
+        image: portainer/portainer:1.23.2
+        command: -H tcp://tasks.agent:9001 --tlsskipverify
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - "portainer-data:/data"
+        ports:
+            - "9000:9000"
+        deploy:
+            mode: replicated
+            replicas: 1
+            placement:
+                constraints: [node.role == manager]
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.http.routers.portainer.entrypoints=http
+                - traefik.http.routers.portainer.rule=Host(`portainer.chariot.platform.local`)
+                - traefik.http.services.portainer.loadbalancer.server.port=9000
+
+volumes:
+    portainer-data:
+        external: false
+    portainer-agent-data:
+        external: false
+
+networks:
+    default:
+        external:
+            name: net
