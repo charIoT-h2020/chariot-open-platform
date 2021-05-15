@@ -1,7 +1,7 @@
 # CHARIOT Open Platform
 
 [![License](https://img.shields.io/badge/License-EPL%202.0-yellow.svg)](https://opensource.org/licenses/EPL-2.0)
-[![Dockerhub](https://img.shields.io/badge/dockerhub-charioth2020-yellowgreen)](hub.docker.com/orgs/charioth2020/repositories)
+[![Dockerhub](https://img.shields.io/badge/dockerhub-charioth2020-yellowgreen)](https://hub.docker.com/orgs/charioth2020/repositories)
 
 Instruction for setting up the open-source version of the CHARIOT.
 
