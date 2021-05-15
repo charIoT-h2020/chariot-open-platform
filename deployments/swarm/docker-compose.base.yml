@@ -1,0 +1,163 @@
+version: "3"
+
+services:
+    southbound:
+        image: eclipse-mosquitto:1.6.9
+        hostname: southbound.mosquitto
+        ports: 
+            - "1883:1883"
+        volumes:
+            - /mnt/shared/configuration/southbound-mosquitto.conf:/mosquitto/config/mosquitto.conf
+        networks:
+            default:
+                aliases:
+                - southbound.mosquitto
+        deploy:
+            labels: 
+                - traefik.enable=false
+
+    northbound:
+        image: eclipse-mosquitto:1.6.9
+        hostname: northbound.mosquitto
+        ports: 
+            - "1884:1883"
+        volumes:
+            - /mnt/shared/configuration/northbound-mosquitto.conf:/mosquitto/config/mosquitto.conf
+        networks:
+            default:
+                aliases:
+                    - northbound.mosquitto
+        deploy:
+            labels: 
+                - traefik.enable=false
+
+    influxdb:
+        image: influxdb:1.7-alpine
+        hostname: influxdb_service
+        volumes:
+            - /mnt/shared/influxdb-data:/var/lib/influxdb
+            - /mnt/shared/configuration/influxdb.conf:/etc/influxdb/influxdb.conf
+        networks:
+            default:
+                aliases:
+                    - influxdb.service
+        deploy:
+            placement:
+                constraints: [node.role == manager]
+            labels:
+                - traefik.http.routers.influxdb.rule=Host(`chariot.platform.local`) && PathPrefix(`/storage`)
+                - traefik.http.routers.influxdb.entrypoints=http
+                - traefik.http.routers.influxdb.middlewares=influxdb
+                - traefik.http.middlewares.influxdb.stripprefix.prefixes=/storage
+                - traefik.http.services.influxdb.loadbalancer.server.port=8086
+
+    jaegertracing:
+        image: quay.io/influxdb/jaeger-all-in-one-influxdb
+        hostname: jaegertracing_service
+        environment:
+            - INFLUXDB_HOST=http://influxdb.service:8086
+        ports:
+            - "5775:5775/udp"
+            - "6831:6831/udp"
+            - "6832:6832/udp"
+            - "5778:5778"
+            - "14268:14268"
+            - "9411:9411"
+        networks:
+            default:
+                aliases:
+                    - jaegertracing.service  
+        depends_on: 
+            - influxdb
+        deploy:
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.http.routers.jaegertracing.rule=Host(`tracing.chariot.platform.local`)
+                - traefik.http.routers.jaegertracing.entrypoints=http
+                - traefik.http.routers.jaegertracing.service=jaegertracing
+                - traefik.http.services.jaegertracing.loadbalancer.server.port=16686
+
+    mongodb:
+        image: mvertes/alpine-mongo:4.0.6-1
+        hostname: mongodb_service
+        volumes:
+            - "/mnt/shared/mongodb-data:/data/db"
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: root
+            MONGO_INITDB_ROOT_PASSWORD: example
+        deploy:
+            replicas: 1
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.tcp.routers.mongodb.rule=HostSNI(`*`)
+                - traefik.tcp.routers.mongodb.entrypoints=mongodb
+                - traefik.tcp.services.mongodb.loadbalancer.server.port=27017
+
+    nodered:
+        image: nodered/node-red:1.0.4
+        volumes:
+            - /mnt/shared/node-red:/data
+        deploy:
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.http.routers.nodered.rule=Host(`integration.chariot.platform.local`)
+                - traefik.http.routers.nodered.entrypoints=http
+                - traefik.http.routers.nodered.service=nodered
+                - traefik.http.services.nodered.loadbalancer.server.port=1880
+
+    redis:
+        image: redis:5.0.5-alpine
+        hostname: redis_service
+        networks:
+            default:
+                aliases:
+                        - redis.service
+        deploy:
+            labels:
+                - traefik.enable=false
+    
+    grafana:
+        image: grafana/grafana:6.6.2
+        hostname: grafana_service
+        depends_on:
+            - influxdb
+        volumes:
+            - "/mnt/shared/grafana-data:/var/lib/grafana"
+            - "/mnt/shared/configuration/grafana/conf:/etc/grafana/"
+        networks:
+            default:
+                aliases:
+                    - grafana.service
+        user: "472"
+        deploy:
+            labels:
+                - traefik.enable=true
+                - traefik.docker.network=net
+                - traefik.http.routers.grafana.rule=Host(`operational.chariot.platform.local`)
+                - traefik.http.routers.grafana.entrypoints=http
+                - traefik.http.routers.grafana.service=grafana
+                - traefik.http.services.grafana.loadbalancer.server.port=3000
+
+    netdata:
+        image: netdata/netdata:v1.20.0
+        hostname: "{{.Node.Hostname}}"
+        volumes:
+            - /etc/passwd:/host/etc/passwd:ro
+            - /etc/group:/host/etc/group:ro
+            - /mnt/shared/configuration/netdata.conf:/etc/netdata/netdata.conf:ro
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+        deploy:
+            mode: global
+            placement:
+                constraints: [node.platform.os == linux]
+            labels:
+                - traefik.enable=false
+
+networks:
+    default:
+        external:
+            name: net
